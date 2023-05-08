@@ -1,0 +1,112 @@
+cabal-version:      3.4
+name:               verda-assets
+version:            0.2.0.0
+synopsis:           An asset loader and manager library
+-- description:
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Erin Torno
+maintainer:         erintorno@gmail.com
+-- copyright:
+category:           Game
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
+
+
+common shared-config
+    default-extensions:
+        BangPatterns
+        BlockArguments
+        BinaryLiterals
+        ConstraintKinds
+        DataKinds
+        DefaultSignatures
+        DeriveDataTypeable
+        DeriveFoldable
+        DeriveFunctor
+        DeriveGeneric
+        DeriveTraversable
+        DoAndIfThenElse
+        DuplicateRecordFields
+        EmptyDataDecls
+        ExistentialQuantification
+        FlexibleContexts
+        FlexibleInstances
+        FunctionalDependencies
+        GADTs
+        GeneralizedNewtypeDeriving
+        InstanceSigs
+        KindSignatures
+        LambdaCase
+        MultiParamTypeClasses
+        MultiWayIf
+        NamedFieldPuns
+        OverloadedRecordDot
+        OverloadedStrings
+        PartialTypeSignatures
+        PatternGuards
+        PolyKinds
+        RankNTypes
+        RecordWildCards
+        ScopedTypeVariables
+        StandaloneDeriving
+        TupleSections
+        TypeFamilies
+        TypeSynonymInstances
+        ViewPatterns
+    ghc-options: -Wall -threaded -Wno-name-shadowing -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
+
+library
+    import:           shared-config
+    exposed-modules:  Verda.Asset
+                      Verda.Asset.Internal
+                      Verda.Asset.File
+                      Verda.Asset.Loader
+                      Verda.Asset.Types
+    -- other-modules:
+    -- other-extensions:
+    build-depends:    base                 ^>=4.17.0.0
+                    , bytestring
+                    , containers
+                    , data-default
+                    , data-hash
+                    , directory
+                    , filepath
+                    , fsnotify
+                    , hashable
+                    , hashtables
+                    , exceptions
+                    , mtl
+                    , text                 ^>=2
+                    , transformers
+                    , type-map
+                    , unliftio-core
+                    , unordered-containers
+                    , vector
+    hs-source-dirs:   lib
+    default-language: GHC2021
+
+test-suite verda-assets-test
+    import:           shared-config
+    default-language: GHC2021
+    other-modules:    Verda.Asset.FileSpec
+                      Verda.Asset.InternalSpec
+                      Verda.Asset.TestUtils
+    -- other-extensions:
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Spec.hs
+    build-depends:    base         ^>=4.17.0.0
+                    , verda-assets
+                    , bytestring
+                    , data-default
+                    , hspec        >=2 && <3
+                    , HUnit
+                    , containers
+                    , mtl
+                    , text
+                    , type-map
+                    , unliftio-core
+                    , unordered-containers
+    build-tool-depends: hspec-discover:hspec-discover == 2.*
