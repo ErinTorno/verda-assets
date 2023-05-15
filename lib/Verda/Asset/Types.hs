@@ -21,6 +21,7 @@ import qualified Data.Vector.Mutable          as MVec
 import           GHC.Generics                 (Generic)
 import           System.Mem.Weak              (Weak)
 import           Type.Reflection              (SomeTypeRep, typeRep)
+import           Verda.Asset.Meta             (MetaMap)
 
 -- | Status corresponding to the asset's presence in memory
 data AssetStatus
@@ -143,14 +144,6 @@ data DynPrimaryKind
     = DynPKAsset !Dynamic -- ~ a
     | DynPKAlias !Int     -- Handle.index
 
-data MetaS
-type instance TM.Item MetaS t = HashMap Text t
-type MetaMap = TypeMap MetaS
-
--- | An empty TypeMap for metadata
-noMeta :: MetaMap
-noMeta = TM.empty
-
 data LoadContext a = LoadContext
     { primary   :: !a
     , waitingOn :: !HandleSet
@@ -182,6 +175,10 @@ data AssetToLoad m = AssetToLoad
     , accept :: !(Dynamic -> IO ()) -- receives the final dynamic value to store in its MVar
     , acceptRefs :: !(AssetRefs -> IO ())
     }
+
+----------------
+-- Asset Refs --
+----------------
 
 data AssetRefs = AssetRefs
     { primary :: !Dynamic                -- Dynamic ~ Weak (MVar a)

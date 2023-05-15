@@ -1,14 +1,16 @@
+{-# LANGUAGE OverloadedLists #-}
+
 module Verda.Asset.InternalSpec where
 
 import           Control.Monad.IO.Class   (MonadIO(liftIO))
 import           Control.Monad            (forM_)
-import           Control.Concurrent.MVar  (swapMVar)
+import           Control.Concurrent.MVar  (swapMVar, readMVar)
 import           Control.Exception        (Exception, throwIO)
 import qualified Data.ByteString          as BS
 import           Data.Default             (def)
 import           Data.Functor
 import           Data.Function            ((&))
-import qualified Data.HashSet as HS
+import qualified Data.HashSet             as HS
 import           Data.Maybe
 import           Data.String              (IsString)
 import qualified Data.Text                as T
@@ -33,7 +35,11 @@ myLoadAliasLoader = AssetLoader
     , load       = \_file bytes -> do
         let path = decodeUtf8Lenient bytes
         alias :: Handle MyAsset <- loadHandle (T.unpack path)
-        pure $ Right $ justAlias alias
+        pure $ Right LoadContext
+            { primary   = PKAlias alias
+            , waitingOn = def
+            , meta      = def & withMeta "alias-src" ("myLoadAliasLoader" :: String)
+            }
     }
 
 data LoadShouldFail = LoadShouldFail deriving (Eq, Show)
@@ -56,8 +62,8 @@ complexAssetLoader = AssetLoader
         simple :: Handle MyAsset <- loadHandle "./LICENSE"
         pure $ Right LoadContext
             { primary   = PKAsset ComplexAsset {..}
-            , waitingOn = def & withHandle simple
-            , meta      = noMeta & withMeta "bytelen" (BS.length bytes)
+            , waitingOn = mempty & withHandle simple
+            , meta      = mempty & withMeta "bytelen" (BS.length bytes)
             }
     }
 
@@ -108,7 +114,7 @@ loadHandleSpec =
         it "successive assets should have incrementing ids" do
             assets <- mkDefaultAssets <&> withLoader myAssetLoader
             withAssets assets do
-                forM_ [0..1023] \(i :: Int) -> do
+                forM_ ([0..1023] :: [Int]) \i -> do
                     handle :: Handle MyAsset <- loadHandle $ "any#" <> show i <> ".myfile"
                     status <- assetStatus handle
                     liftIO do
@@ -118,6 +124,7 @@ loadHandleSpec =
 loadPrimaryAssetSpec :: Spec
 loadPrimaryAssetSpec =
     context "loadPrimaryAsset" do 
+        let (/\) = (,)
         it "should load all existing loaded assets" do
             assets <- mkDefaultAssets <&> withLoader myAssetLoader
             withAssets assets do
@@ -150,6 +157,45 @@ loadPrimaryAssetSpec =
                     assetA  `shouldBe` assetO
                     assetO  `shouldBe` Just MyAsset
                     assetA  `shouldBe` Just MyAsset
+                    readMVar assets.aliases.byClone    `shouldReturn` [alias.index /\ handle.index]
+                    readMVar assets.aliases.byOriginal `shouldReturn` [handle.index /\ [alias.index]]
+
+        it "should merge alias and original metadata" do
+            let simpleMetaLoader = AssetLoader
+                    { load = \_file _bytes -> pure $ Right LoadContext
+                            { primary   = PKAsset MyAsset
+                            , meta      = def & withMeta "src" ("simpleMetaLoader" :: String)
+                            , waitingOn = def
+                            }
+                    , extensions = (myAssetLoader @TestReader).extensions
+                    }
+            assets <- mkDefaultAssets
+                  <&> withLoader myLoadAliasLoader
+                    . withLoader simpleMetaLoader
+            withAssets assets do
+                let lpa = do
+                        toLoad <- liftIO $ swapMVar assets.queues.toLoad mempty
+                        forM_ toLoad loadPrimaryAsset
+                origHandle :: Handle MyAsset <- loadHandle "./LICENSE"
+                lpa
+                meta1 <- assetMeta origHandle
+                liftIO do
+                    meta1.length `shouldBe` 1
+                    meta1.lookup "src" `shouldBe` Just ("simpleMetaLoader" :: String)
+
+                alias :: Handle MyAsset <- loadHandle "./test/assets/license.alias"
+                lpa
+                attemptFinishAliases
+
+                meta2viaOrig <- assetMeta origHandle
+                meta2 <- assetMeta alias
+                let assertMeta2 (meta :: MetaMap) = do
+                        meta.length `shouldBe` 2
+                        meta.lookup "src"       `shouldBe` Just ("simpleMetaLoader" :: String)
+                        meta.lookup "alias-src" `shouldBe` Just ("myLoadAliasLoader" :: String)
+                liftIO do
+                    assertMeta2 meta2viaOrig
+                    assertMeta2 meta2
         it "should set status to failed if file doesn't exist" do
             assets <- mkDefaultAssets <&> withLoader myAssetLoader
             withAssets assets do

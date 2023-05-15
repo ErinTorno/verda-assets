@@ -8,6 +8,7 @@ import           Control.Exception           (SomeException, catch)
 import           Control.Monad.IO.Unlift     (MonadUnliftIO(..), askUnliftIO, UnliftIO(UnliftIO))
 import           Control.Monad               (forever, forM_, foldM)
 import           Control.Monad.IO.Class      (MonadIO(..))
+import           Control.Monad.Primitive     (PrimMonad, PrimState)
 import           Control.Monad.ST            (stToIO)
 import           Data.Default                (Default(def))
 import           Data.Dynamic                (toDyn, fromDyn, Dynamic)
@@ -20,18 +21,17 @@ import           Data.Maybe                  (fromMaybe)
 import qualified Data.Sequence               as Seq
 import           Data.Sequence               ((|>), Seq(..))
 import           Data.String                 (IsString)
-import           Data.Text                   (Text)
 import qualified Data.Text                   as T
 import qualified Data.TypeMap.Dynamic.Alt    as TM
 import qualified Data.Vector.Mutable         as MVec
-import           Data.Vector.Generic.Mutable (PrimMonad)
 import qualified Data.Vector.Generic.Mutable as GMVec
-import           System.FilePath             (takeExtension)
 import           GHC.Stack                   (HasCallStack)
+import           System.FilePath             (takeExtension)
 import qualified System.FSNotify             as FSNotify
 import           System.Mem.Weak
 import           Type.Reflection             (Typeable, typeOf)
 import           Verda.Asset.File
+import           Verda.Asset.Meta            (MetaMap)
 import           Verda.Asset.Types
 
 expectBug :: IsString s => s
@@ -159,7 +159,9 @@ initAlias awaiting aliasIndex ctx = do
         modifyMVar_ assets.aliases.byClone $
             pure . HM.insert awaiting.index origIndex
         modifyMVar_ assets.aliases.byOriginal $
-            pure . HM.adjust (HS.insert awaiting.index) origIndex
+            let f (Just hs) = HS.insert awaiting.index hs
+                f Nothing   = HS.singleton awaiting.index
+             in pure . HM.alter (Just . f) origIndex
         awaiting.acceptRefs refs
         modifyMVar_ assets.refsVector \v ->
             MVec.write v awaiting.index refs $> v
@@ -177,22 +179,20 @@ attemptFinishAliases = do
                 readStatus origIndex assets >>= \case
                     Loaded   -> do
                         tryReadMVar assets.weakRefs >>= \case
-                            Nothing -> go (acc |> pair) as
+                            Nothing       -> go (acc |> pair) as
                             Just weakRefs -> do
-                                MVec.readMaybe weakRefs origIndex >>= \case
-                                    Nothing  ->
-                                        let expect = Failed $ T.pack $ "Asset " <> show origIndex <> " was loaded but weakRefs eval'ed to nothing; " <> expectBug
-                                         in writeStatus awaiting.index expect assets
-                                    Just wr  -> do
-                                        let expect = Failed $ T.pack $ "Weak var retrieval for " <> show origIndex <> " failed; " <> expectBug
+                                wr <- MVec.read weakRefs origIndex
+                                let expect = Failed $ T.pack $ "Weak var retrieval for " <> show origIndex <> " failed; " <> expectBug
 
-                                        wr.retrieve >>= \case
-                                            Just a  -> do
-                                                awaiting.accept a
-                                                writeStatus awaiting.index Loaded assets
-                                            Nothing ->
-                                                writeStatus awaiting.index expect assets
-                                go acc as   
+                                origMeta <- readAssetMeta origIndex assets
+                                writeAssetMeta origIndex (origMeta <> ctx.meta) assets
+                                wr.retrieve >>= \case
+                                    Just a  -> do
+                                        awaiting.accept a
+                                        writeStatus awaiting.index Loaded assets
+                                    Nothing ->
+                                        writeStatus awaiting.index expect assets
+                                go acc as
                     Failed msg -> do
                         writeStatus awaiting.index (Failed msg) assets
                         go acc as
@@ -221,10 +221,10 @@ readStatus !index !assets = liftIO do
 
 writeStatus :: MonadIO mio => Int -> AssetStatus -> Assets m -> mio ()
 writeStatus !idx !status !assets = liftIO do
+    byOriginal <- readMVar assets.aliases.byOriginal
     statuses <- takeMVar assets.statuses
 
     MVec.write statuses idx status
-    byOriginal <- readMVar assets.aliases.byOriginal
     forM_ (HM.lookup idx byOriginal) \clones ->
         forM_ clones \i ->
             MVec.write statuses i status
@@ -350,7 +350,7 @@ loadHandle !file = do
             weakRefs <- takeMVar assets.weakRefs
             index    <- modifyMVar assets.nextIndex \i ->
                 pure (i + 1, i)
-            modifyMVar_ assets.metaVector $ growWrite index noMeta
+            modifyMVar_ assets.metaVector $ growWrite index mempty
             modifyMVar_ assets.statuses   $ growWrite index Loading
             weak      <- mkWeakPtr mvar Nothing
             weakRefs' <- growIfNeeded index bufferGrowIncrement weakRefs
@@ -377,15 +377,33 @@ loadHandle !file = do
                     resetRefs index refs.primary
                     pure Handle {..}
 
+----------
+-- Meta --
+----------
+
+readAssetMeta :: forall m mio. MonadIO mio => Int -> Assets m -> mio MetaMap
+readAssetMeta !idx !assets = liftIO do
+    metaVec <- readMVar assets.metaVector
+    MVec.read metaVec idx
+
+writeAssetMeta :: MonadIO mio => Int -> MetaMap -> Assets m -> mio ()
+writeAssetMeta !idx !metamap !assets = liftIO do
+    byOriginal <- readMVar assets.aliases.byOriginal
+    metaVec <- takeMVar assets.metaVector
+
+    MVec.write metaVec idx metamap
+    forM_ (HM.lookup idx byOriginal) \clones ->
+        forM_ clones \i ->
+            MVec.write metaVec i metamap
+
+    putMVar assets.metaVector metaVec
+
 assetMeta :: forall m a. (AssetReader m, MonadIO m) => Handle a -> m MetaMap
 assetMeta handle = do
     assets <- askAssets
     liftIO do
         metaVec <- readMVar assets.metaVector
-        MVec.read metaVec handle.index 
-
-metaLookup :: forall a. Typeable a => Text -> MetaMap -> Maybe a
-metaLookup label tm = TM.lookup @a tm >>= HM.lookup label
+        MVec.read metaVec handle.index
 
 -----------
 -- Utils --
@@ -394,13 +412,13 @@ metaLookup label tm = TM.lookup @a tm >>= HM.lookup label
 bufferGrowIncrement :: Int
 bufferGrowIncrement = 32
 
-growWrite :: (PrimMonad m, GMVec.MVector v a) => Int -> a -> v (GMVec.PrimState m) a -> m (v (GMVec.PrimState m) a)
+growWrite :: (PrimMonad m, GMVec.MVector v a) => Int -> a -> v (PrimState m) a -> m (v (PrimState m) a)
 growWrite !index !a !v = do
     v' <- growIfNeeded index bufferGrowIncrement v
     GMVec.write v' index a
     pure v'
 
-growIfNeeded :: (PrimMonad m, GMVec.MVector v a) => Int -> Int -> v (GMVec.PrimState m) a -> m (v (GMVec.PrimState m) a)
+growIfNeeded :: (PrimMonad m, GMVec.MVector v a) => Int -> Int -> v (PrimState m) a -> m (v (PrimState m) a)
 growIfNeeded !len !increment !v
     | len >= curLen = GMVec.grow v (len + increment)
     | otherwise     = pure v

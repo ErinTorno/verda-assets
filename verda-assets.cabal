@@ -1,6 +1,6 @@
 cabal-version:      3.4
 name:               verda-assets
-version:            0.2.0.0
+version:            0.2.1.0
 synopsis:           An asset loader and manager library
 -- description:
 license:            BSD-3-Clause
@@ -61,8 +61,10 @@ library
     import:           shared-config
     exposed-modules:  Verda.Asset
                       Verda.Asset.Internal
+                      Verda.Asset.Internal.Impl
                       Verda.Asset.File
                       Verda.Asset.Loader
+                      Verda.Asset.Meta
                       Verda.Asset.Types
     -- other-modules:
     -- other-extensions:
@@ -78,6 +80,7 @@ library
                     , hashtables
                     , exceptions
                     , mtl
+                    , primitive
                     , text                 ^>=2
                     , transformers
                     , type-map
@@ -92,6 +95,7 @@ test-suite verda-assets-test
     default-language: GHC2021
     other-modules:    Verda.Asset.FileSpec
                       Verda.Asset.InternalSpec
+                      Verda.Asset.MetaSpec
                       Verda.Asset.TestUtils
     -- other-extensions:
     type:             exitcode-stdio-1.0

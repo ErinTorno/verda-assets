@@ -16,6 +16,13 @@ module Verda.Asset
     , withLoader
     -- Loader
     , module Verda.Asset.Loader
+    -- Meta
+    , MetaMap(..)
+    , metaLookup
+    , metaLength
+    , metaLengthOf
+    , metaUnion
+    , withMeta
     -- Types
     , Assets
     , AssetLoader(..)
@@ -26,11 +33,10 @@ module Verda.Asset
     , Handle(..)
     , HandleRef(..)
     , HandleSet
-    , MetaMap
-    , noMeta
     ) where
 
 import Verda.Asset.File
 import Verda.Asset.Internal
 import Verda.Asset.Loader
+import Verda.Asset.Meta
 import Verda.Asset.Types

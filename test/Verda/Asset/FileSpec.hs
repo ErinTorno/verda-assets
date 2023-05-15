@@ -1,10 +1,10 @@
 module Verda.Asset.FileSpec where
 
+import           Control.Monad.IO.Class (MonadIO(liftIO))
 import           Data.Maybe             (isJust)
 import           Test.Hspec
 import           Verda.Asset.Types
 import           Verda.Asset.TestUtils
-import           Control.Monad.IO.Class (MonadIO(liftIO))
 
 spec :: Spec
 spec = do

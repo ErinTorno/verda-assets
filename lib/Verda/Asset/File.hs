@@ -1,10 +1,10 @@
 module Verda.Asset.File where
 
 import           Control.Exception
-import qualified Data.ByteString         as BS
-import           Verda.Asset.Types       (AssetIO(..))
-import Control.Monad.IO.Class (MonadIO (liftIO))
-import System.Directory (doesPathExist, doesFileExist)
+import           Control.Monad.IO.Class (MonadIO (liftIO))
+import qualified Data.ByteString        as BS
+import           System.Directory       (doesPathExist, doesFileExist)
+import           Verda.Asset.Types      (AssetIO(..))
 
 fileAssetIO :: MonadIO m => AssetIO m
 fileAssetIO = AssetIO
